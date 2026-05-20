@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Mind Map - JS Mind Map Tool</title>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        /* CSS Variables */
+        :root {
+            --bg-color: #f4f6f9;
+            --grid-color: #cbd5e1;
+            --control-bg: white;
+            --text-color: #333333;
+            --node-bg: white;
+            --node-text: #333333;
+            --node-border: #007bff;
+            --line-color: #495057;
+            --input-border: #ccd1d9;
+            --modal-bg: white;
+        }
+
+        body.dark-mode {
+            --bg-color: #1e1e24;
+            --grid-color: #3a3a44;
+            --control-bg: #2a2a35;
+            --text-color: #ffffff;
+            --node-bg: #2d2d38;
+            --node-text: #ffffff;
+            --node-border: #3b82f6;
+            --line-color: #a1a1aa;
+            --input-border: #4e4e5a;
+            --modal-bg: #2a2a35;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        /* Top control panel */
+        .controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: var(--control-bg);
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .map-title-input {
+            padding: 8px 12px;
+            border: 1px solid var(--input-border);
+            background: var(--node-bg);
+            color: var(--text-color);
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            outline: none;
+            width: 150px;
+        }
+
+        button {
+            padding: 10px 12px;
+            border: none;
+            background-color: #007bff;
+            color: white;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            font-size: 12px;
+        }
+
+        button:hover { background-color: #0056b3; }
+        .btn-success { background-color: #28a745; }
+        .btn-success:hover { background-color: #218838; }
+        .btn-danger { background-color: #dc3545; }
+        .btn-danger:hover { background-color: #c82333; }
+        .btn-warning { background-color: #ffc107; color: #212529; }
+        .btn-warning:hover { background-color: #e0a800; }
+        .btn-info { background-color: #17a2b8; }
+        .btn-info:hover { background-color: #138496; }
+
+        #mode-toggle-btn { background-color: #6c757d; }
+
+        /* Workspace & Canvas Setup (UPDATED) */
+        .workspace {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            background-color: var(--bg-color);
+            cursor: grab; /* Infinite canvas එකක් නිසා අල්ලලා අදින්න පුළුවන් අත් ලකුණ */
+        }
+        
+        .workspace:active {
+            cursor: grabbing;
+        }
+
+        /* NEW: Zoom සහ Pan වෙන්නේ මේ Content Wrapper එක */
+        .canvas-content {
+            position: absolute;
+            width: 5000px;  /* Infinite පෙනුමක් දෙන්න විශාල size එකක් ගන්නවා */
+            height: 5000px;
+            top: -2000px;   /* මැද හරියෙන් මුලින්ම පටන් ගන්න */
+            left: -2000px;
+            transform-origin: center center; /* මැද ඉඳන් zoom වෙන්න */
+            background-image: radial-gradient(var(--grid-color) 1px, transparent 1px);
+            background-size: 20px 20px;
+            pointer-events: auto;
+        }
+
+        #svg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        /* Node Styling */
+        .node {
+            position: absolute;
+            padding: 12px 25px;
+            background: var(--node-bg);
+            color: var(--node-text);
+            border: 2px solid var(--node-border);
+            border-radius: 30px;
+            min-width: 140px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: move;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            transition: background-color 0.2s, border-color 0.2s, color 0.2s; /* Scale/Transform නිසා මෙතනින් transform අයින් කලා */
+        }
+
+        .node.root {
+            background: #007bff;
+            color: white;
+            font-weight: bold;
+            font-size: 1.1rem;
+            border-color: #0056b3;
+        }
+
+        .node-text {
+            outline: none;
+            width: 100%;
+        }
+
+        /* Connect handle */
+        .connect-handle {
+            position: absolute;
+            right: -8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            background-color: #28a745;
+            border-radius: 50%;
+            cursor: crosshair;
+            border: 2px solid var(--node-bg);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            z-index: 5;
+        }
+        .connect-handle:hover { transform: translateY(-50%) scale(1.2); }
+
+        /* Delete Button */
+        .delete-btn {
+            position: absolute;
+            top: -10px; right: -5px; width: 20px; height: 20px;
+            background-color: #dc3545; color: white; border-radius: 50%;
+            font-size: 11px; font-weight: bold; line-height: 18px; text-align: center;
+            cursor: pointer; display: none; border: 1px solid var(--node-bg);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2); z-index: 6;
+        }
+        .node:hover .delete-btn { display: block; }
+        .node.root:hover .delete-btn { display: none; }
+
+        /* Color Picker Panel */
+        .color-picker {
+            position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+            display: none; gap: 5px; background: var(--control-bg); padding: 4px 8px;
+            border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); z-index: 7;
+            border: 1px solid var(--input-border);
+        }
+        .node:hover .color-picker { display: flex; }
+        .color-dot { width: 12px; height: 12px; border-radius: 50%; cursor: pointer; border: 1px solid rgba(0,0,0,0.2); }
+        .color-dot:hover { transform: scale(1.2); }
+
+        /* Modal Popup */
+        .modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 100; display: none;
+        }
+        .modal-box {
+            background: var(--modal-bg); color: var(--text-color); padding: 25px; border-radius: 12px;
+            width: 450px; max-height: 80vh; overflow-y: auto; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border: 1px solid var(--input-border);
+        }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--input-border); padding-bottom: 10px; }
+        .close-modal { font-size: 24px; cursor: pointer; font-weight: bold; }
+        .map-item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border: 1px solid var(--input-border); margin-bottom: 10px; border-radius: 6px; background: var(--bg-color); }
+        .map-item-info { font-weight: 600; }
+        .map-item-actions { display: flex; gap: 5px; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <input type="text" id="map-title" class="map-title-input" placeholder="Enter Name..." value="My Mind Map">
+        <button id="add-node-btn">+ Add Node</button>
+        <button id="save-map-btn" class="btn-warning">💾 Save Map</button>
+        <button id="open-list-btn" class="btn-info">📂 Saved Maps</button>
+        <button id="mode-toggle-btn">🌙 Dark Mode</button>
+        <button id="download-img-btn" class="btn-success">PNG</button>
+        <button id="download-pdf-btn" class="btn-danger">PDF</button>
+    </div>
+
+    <div id="workspace" class="workspace">
+        <div id="canvas-content" class="canvas-content">
+            <svg id="svg-canvas">
+                <line id="temp-line" stroke="#28a745" stroke-width="2" stroke-dasharray="5,5" x1="0" y1="0" x2="0" y2="0" style="display:none;"></line>
+            </svg>
+            
+            <div id="root-node" class="node root" style="left: 2400px; top: 2400px;"> <div class="node-text" contenteditable="true">Main Topic</div>
+                <div class="connect-handle"></div>
+                <div class="color-picker">
+                    <div class="color-dot" style="background: #007bff;" data-color="#007bff"></div>
+                    <div class="color-dot" style="background: #28a745;" data-color="#28a745"></div>
+                    <div class="color-dot" style="background: #dc3545;" data-color="#dc3545"></div>
+                    <div class="color-dot" style="background: #ffc107;" data-color="#ffc107"></div>
+                    <div class="color-dot" style="background: #6f42c1;" data-color="#6f42c1"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="list-modal" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3>Saved Mind Maps</h3>
+                <span class="close-modal" id="close-modal-btn">&times;</span>
+            </div>
+            <div id="saved-maps-container"></div>
+        </div>
+    </div>
+
+    <script>
+        const workspace = document.getElementById('workspace');
+        const canvasContent = document.getElementById('canvas-content');
+        const addNodeBtn = document.getElementById('add-node-btn');
+        const modeToggleBtn = document.getElementById('mode-toggle-btn');
+        const svgCanvas = document.getElementById('svg-canvas');
+        const tempLine = document.getElementById('temp-line');
+        const mapTitleInput = document.getElementById('map-title');
+        const downloadImgBtn = document.getElementById('download-img-btn');
+        const downloadPdfBtn = document.getElementById('download-pdf-btn');
+
+        const saveMapBtn = document.getElementById('save-map-btn');
+        const openListBtn = document.getElementById('open-list-btn');
+        const listModal = document.getElementById('list-modal');
+        const closeModalBtn = document.getElementById('close-modal-btn');
+        const savedMapsContainer = document.getElementById('saved-maps-container');
+
+        // NEW: Zoom & Pan Variables
+        let zoom = 1;
+        let panX = -2000;
+        let panY = -2000;
+        let isPanning = false;
+        let startPanX = 0, startPanY = 0;
+
+        let isDragging = false; let isConnecting = false;
+        let currentTarget = null; let sourceNodeId = null;
+        let offsetX = 0; let offsetY = 0;
+        let connections = [];
+
+        // ==========================================
+        // 🔍 NEW: ZOOM & PAN LOGIC
+        // ==========================================
+        
+        // Zoom Logic (Mouse Wheel)
+        workspace.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.05;
+            if (e.deltaY < 0) {
+                zoom = Math.min(zoom + zoomSpeed, 2); // Max zoom 2x
+            } else {
+                zoom = Math.max(zoom - zoomSpeed, 0.5); // Min zoom 0.5x
+            }
+            applyCanvasTransform();
+        });
+
+        function applyCanvasTransform() {
+            canvasContent.style.transform = `translate(${panX + 2000}px, ${panY + 2000}px) scale(${zoom})`;
+        }
+
+        // ==========================================
+        // 🖱️ MOUSE EVENTS (With Zoom adjustments)
+        // ==========================================
+        workspace.addEventListener('mousedown', (e) => {
+            if (e.target.classList.contains('delete-btn')) {
+                deleteNode(e.target.parentElement.id); return;
+            }
+            if (e.target.classList.contains('color-dot')) {
+                const selectedColor = e.target.getAttribute('data-color');
+                const nodeEl = e.target.closest('.node');
+                if(nodeEl.classList.contains('root')) {
+                    nodeEl.style.backgroundColor = selectedColor; nodeEl.style.borderColor = selectedColor;
+                } else {
+                    nodeEl.style.borderColor = selectedColor; nodeEl.style.boxShadow = `0 4px 10px ${selectedColor}22`;
+                }
+                return;
+            }
+            if (e.target.classList.contains('connect-handle')) {
+                isConnecting = true;
+                const parentNode = e.target.parentElement;
+                sourceNodeId = parentNode.id;
+                
+                // SVG එක ඇතුලේ coordinates ගන්න නිසා zoom වලින් බෙදන්න ඕන
+                const sX = parentNode.offsetLeft + (parentNode.offsetWidth);
+                const sY = parentNode.offsetTop + (parentNode.offsetHeight / 2);
+                
+                tempLine.setAttribute('x1', sX); tempLine.setAttribute('y1', sY);
+                tempLine.setAttribute('x2', sX); tempLine.setAttribute('y2', sY);
+                tempLine.style.display = 'block';
+                e.stopPropagation(); return;
+            }
+            if (e.target.classList.contains('node')) {
+                isDragging = true; currentTarget = e.target;
+                // CRITICAL: Zoom level එකට සාපේක්ෂව Offset එක හදන්න ඕනේ
+                offsetX = (e.clientX / zoom) - currentTarget.offsetLeft;
+                offsetY = (e.clientY / zoom) - currentTarget.offsetTop;
+                e.stopPropagation();
+                return;
+            }
+            
+            // කිසිම Node එකක් උඩ නෙවෙයි නම් ක්ලික් කලේ -> Panning (Canvas එක ඇදීම) පටන් ගන්නවා
+            if(e.target === workspace || e.target === canvasContent || e.target.id === 'svg-canvas') {
+                isPanning = true;
+                startPanX = e.clientX - panX;
+                startPanY = e.clientY - panY;
+            }
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (isDragging && currentTarget) {
+                // Moving nodes based on Zoom scale
+                currentTarget.style.left = `${(e.clientX / zoom) - offsetX}px`;
+                currentTarget.style.top = `${(e.clientY / zoom) - offsetY}px`;
+                updateLines();
+            }
+            if (isConnecting) {
+                // Line connecting offset fix for Zoom/Pan
+                const rect = canvasContent.getBoundingClientRect();
+                const currentLineX = (e.clientX - rect.left) / zoom;
+                const currentLineY = (e.clientY - rect.top) / zoom;
+                tempLine.setAttribute('x2', currentLineX);
+                tempLine.setAttribute('y2', currentLineY);
+            }
+            if (isPanning) {
+                panX = e.clientX - startPanX;
+                panY = e.clientY - startPanY;
+                applyCanvasTransform();
+            }
+        });
+
+        document.addEventListener('mouseup', (e) => {
+            isDragging = false; currentTarget = null; isPanning = false;
+            if (isConnecting) {
+                isConnecting = false; tempLine.style.display = 'none';
+                const targetNode = e.target.closest('.node');
+                if (targetNode && targetNode.id !== sourceNodeId) {
+                    const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                    const currentLineColor = document.body.classList.contains('dark-mode') ? '#a1a1aa' : '#495057';
+                    newLine.setAttribute('stroke', currentLineColor); newLine.setAttribute('stroke-width', '2');
+                    svgCanvas.appendChild(newLine);
+                    connections.push({ lineElement: newLine, sourceId: sourceNodeId, targetId: targetNode.id });
+                    updateLines();
+                }
+                sourceNodeId = null;
+            }
+        });
+
+        // Toggle Dark Mode
+        modeToggleBtn.addEventListener('click', () => {
+            document.body.classList.toggle('dark-mode');
+            if(document.body.classList.contains('dark-mode')) {
+                modeToggleBtn.innerHTML = "☀️ Light Mode"; updateLinesColor('#a1a1aa');
+            } else {
+                modeToggleBtn.innerHTML = "🌙 Dark Mode"; updateLinesColor('#495057');
+            }
+        });
+
+        function updateLinesColor(color) { connections.forEach(conn => conn.lineElement.setAttribute('stroke', color)); }
+        mapTitleInput.addEventListener('input', (e) => { document.title = e.target.value.trim() !== "" ? `${e.target.value.trim()} - JS Mind Map Tool` : "Untitled Mind Map"; });
+
+        // Node Creator
+        function createNewNode(id, text, left, top, isRoot = false, borderColor = '', bgColor = '') {
+            const newNode = document.createElement('div');
+            newNode.classList.add('node');
+            if(isRoot) newNode.classList.add('root');
+            newNode.id = id; newNode.style.left = left; newNode.style.top = top;
+            if(borderColor) newNode.style.borderColor = borderColor;
+            if(bgColor) newNode.style.backgroundColor = bgColor;
+
+            const textDiv = document.createElement('div');
+            textDiv.classList.add('node-text'); textDiv.contentEditable = true; textDiv.innerText = text;
+            newNode.appendChild(textDiv);
+
+            const handle = document.createElement('div'); handle.classList.add('connect-handle'); newNode.appendChild(handle);
+
+            if(!isRoot) {
+                const delBtn = document.createElement('div'); delBtn.classList.add('delete-btn'); delBtn.innerHTML = '×'; newNode.appendChild(delBtn);
+            }
+
+            const picker = document.createElement('div'); picker.classList.add('color-picker');
+            const colors = ['#007bff', '#28a745', '#dc3545', '#ffc107', '#6f42c1'];
+            colors.forEach(c => {
+                const dot = document.createElement('div'); dot.classList.add('color-dot'); dot.style.background = c; dot.setAttribute('data-color', c); picker.appendChild(dot);
+            });
+            newNode.appendChild(picker);
+            canvasContent.appendChild(newNode); // NEW: canvasContent එකට දාන්නේ workspace එකට නෙවෙයි
+        }
+
+        addNodeBtn.addEventListener('click', () => {
+            const id = 'node-' + Date.now();
+            // සෙන්ටර් එකට කිට්ටුවෙන් අලුත් නෝඩ් හැදෙන්න සලස්වනවා
+            createNewNode(id, 'New Idea', `${2300 + Math.random() * 200}px`, `${2300 + Math.random() * 200}px`);
+        });
+
+        function deleteNode(nodeId) {
+            document.getElementById(nodeId)?.remove();
+            connections = connections.filter(conn => {
+                if (conn.sourceId === nodeId || conn.targetId === nodeId) { conn.lineElement.remove(); return false; }
+                return true;
+            });
+        }
+
+        function updateLines() {
+            connections.forEach(conn => {
+                const sNode = document.getElementById(conn.sourceId);
+                const tNode = document.getElementById(conn.targetId);
+                if (sNode && tNode) {
+                    conn.lineElement.setAttribute('x1', sNode.offsetLeft + (sNode.offsetWidth / 2));
+                    conn.lineElement.setAttribute('y1', sNode.offsetTop + (sNode.offsetHeight / 2));
+                    conn.lineElement.setAttribute('x2', tNode.offsetLeft + (tNode.offsetWidth / 2));
+                    conn.lineElement.setAttribute('y2', tNode.offsetTop + (tNode.offsetHeight / 2));
+                }
+            });
+        }
+
+        // ==========================================
+        // LocalStorage Save/Load
+        // ==========================================
+        saveMapBtn.addEventListener('click', () => {
+            const mapName = mapTitleInput.value.trim() || "Untitled Mind Map";
+            const nodesData = [];
+            document.querySelectorAll('.node').forEach(node => {
+                nodesData.push({
+                    id: node.id, text: node.querySelector('.node-text').innerText,
+                    left: node.style.left, top: node.style.top, isRoot: node.classList.contains('root'),
+                    borderColor: node.style.borderColor, bgColor: node.style.backgroundColor
+                });
+            });
+            const connectionsData = connections.map(conn => ({ sourceId: conn.sourceId, targetId: conn.targetId }));
+            const fullMapData = { id: 'map-' + Date.now(), name: mapName, nodes: nodesData, connections: connectionsData, date: new Date().toLocaleDateString() };
+            let savedMaps = JSON.parse(localStorage.getItem('mindmaps')) || [];
+            const existingIndex = savedMaps.findIndex(m => m.name === mapName);
+            if(existingIndex !== -1) savedMaps[existingIndex] = fullMapData; else savedMaps.push(fullMapData);
+            localStorage.setItem('mindmaps', JSON.stringify(savedMaps));
+            alert(`"${mapName}" Successfully Saved!`);
+        });
+
+        openListBtn.addEventListener('click', () => { renderSavedMapsList(); listModal.style.display = 'flex'; });
+        closeModalBtn.addEventListener('click', () => listModal.style.display = 'none');
+        window.addEventListener('click', (e) => { if(e.target === listModal) listModal.style.display = 'none'; });
+
+        function renderSavedMapsList() {
+            savedMapsContainer.innerHTML = ""; let savedMaps = JSON.parse(localStorage.getItem('mindmaps')) || [];
+            if(savedMaps.length === 0) { savedMapsContainer.innerHTML = "<p style='text-align:center;'>No saved maps found.</p>"; return; }
+            savedMaps.forEach(map => {
+                const item = document.createElement('div'); item.classList.add('map-item');
+                item.innerHTML = `<div class="map-item-info"><div>${map.name}</div><small style="color:gray;">${map.date}</small></div>
+                    <div class="map-item-actions"><button class="btn-success btn-load" data-id="${map.id}">Load</button><button class="btn-danger btn-del-map" data-id="${map.id}">Delete</button></div>`;
+                savedMapsContainer.appendChild(item);
+            });
+            document.querySelectorAll('.btn-load').forEach(btn => { btn.addEventListener('click', (e) => { loadMap(e.target.getAttribute('data-id')); listModal.style.display = 'none'; })});
+            document.querySelectorAll('.btn-del-map').forEach(btn => { btn.addEventListener('click', (e) => deleteSavedMap(e.target.getAttribute('data-id')))});
+        }
+
+        function loadMap(mapId) {
+            let savedMaps = JSON.parse(localStorage.getItem('mindmaps')) || []; const mapToLoad = savedMaps.find(m => m.id === mapId); if(!mapToLoad) return;
+            document.querySelectorAll('.node').forEach(n => n.remove()); connections.forEach(c => c.lineElement.remove()); connections = [];
+            mapTitleInput.value = mapToLoad.name; document.title = `${mapToLoad.name} - JS Mind Map Tool`;
+            mapToLoad.nodes.forEach(node => { createNewNode(node.id, node.text, node.left, node.top, node.isRoot, node.borderColor, node.bgColor); });
+            mapToLoad.connections.forEach(conn => {
+                const newLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                const lineColor = document.body.classList.contains('dark-mode') ? '#a1a1aa' : '#495057';
+                newLine.setAttribute('stroke', lineColor); newLine.setAttribute('stroke-width', '2');
+                svgCanvas.appendChild(newLine); connections.push({ lineElement: newLine, sourceId: conn.sourceId, targetId: conn.targetId });
+            });
+            // රීසෙට් කරලා මැදට ගන්නවා ලෝඩ් කරද්දී
+            zoom = 1; panX = -2000; panY = -2000; applyCanvasTransform();
+            setTimeout(updateLines, 50);
+        }
+
+        function deleteSavedMap(mapId) {
+            let savedMaps = JSON.parse(localStorage.getItem('mindmaps')) || []; savedMaps = savedMaps.filter(m => m.id !== mapId);
+            localStorage.setItem('mindmaps', JSON.stringify(savedMaps)); renderSavedMapsList();
+        }
+
+        // Export with temporary reset for pure canvas capture
+        downloadImgBtn.addEventListener('click', () => {
+            const fileName = mapTitleInput.value.trim() || "mind-map";
+            document.querySelector('.controls').style.display = 'none';
+            
+            // Download කරද්දී Zoom එක 1 තියලා download කලොත් තමයි ලස්සනට එන්නේ
+            const oldZoom = zoom; const oldX = panX; const oldY = panY;
+            zoom = 1; panX = -2000; panY = -2000; applyCanvasTransform();
+            
+            html2canvas(canvasContent, { useCORS: true }).then(canvas => {
+                const link = document.createElement('a'); link.download = `${fileName}.png`;
+                link.href = canvas.toDataURL('image/png'); link.click();
+                
+                // ආපහු යූසර් හිටපු zoom එකටම දානවා
+                zoom = oldZoom; panX = oldX; panY = oldY; applyCanvasTransform();
+                document.querySelector('.controls').style.display = 'flex';
+            });
+        });
+
+        downloadPdfBtn.addEventListener('click', () => {
+            const fileName = mapTitleInput.value.trim() || "mind-map";
+            document.querySelector('.controls').style.display = 'none';
+            const oldZoom = zoom; const oldX = panX; const oldY = panY;
+            zoom = 1; panX = -2000; panY = -2000; applyCanvasTransform();
+
+            html2canvas(canvasContent, { useCORS: true }).then(canvas => {
+                const imgData = canvas.toDataURL('image/png');
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF('l', 'px', [canvas.width, canvas.height]);
+                pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+                pdf.save(`${fileName}.pdf`);
+                
+                zoom = oldZoom; panX = oldX; panY = oldY; applyCanvasTransform();
+                document.querySelector('.controls').style.display = 'flex';
+            });
+        });
+
+        window.addEventListener('resize', updateLines);
+        
+        // ආරම්භයේදීම canvas එක හරියටම මැදින් පිහිටුවන්න
+        applyCanvasTransform();
+    </script>
+</body>
+</html>
